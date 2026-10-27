@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agente · Registro como Proveedor</title>
+<style>
+  :root { --bg:#f5f7fb; --panel:#fff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --brand:#2563eb; --ok:#059669; --err:#dc2626; --warn:#d97706; --warnbg:#fff7e6; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); height:100vh; display:flex; flex-direction:column; }
+  header { padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  header .meta { color:var(--muted); font-size:13px; }
+  header button { margin-left:auto; }
+  main { flex:1; overflow-y:auto; padding:20px; }
+  .chat { max-width:860px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+  .msg { padding:12px 16px; border-radius:12px; line-height:1.5; font-size:15px; white-space:normal; overflow-wrap:anywhere; }
+  .user { align-self:flex-end; background:var(--brand); color:#fff; max-width:80%; }
+  .agent { align-self:flex-start; background:var(--panel); border:1px solid var(--line); width:100%; }
+  .agent.confirm { border:2px solid var(--warn); background:var(--warnbg); }
+  .agent.error { border-color:var(--err); color:var(--err); }
+  .badge { display:inline-block; font-size:12px; font-weight:700; color:var(--warn); margin-bottom:6px; }
+  .tool { font-family: ui-monospace, Menlo, monospace; font-size:12.5px; border:1px solid var(--line); border-radius:8px; margin:0 0 8px; background:#f8fafc; }
+  .tool summary { cursor:pointer; padding:6px 10px; list-style:none; }
+  .tool summary::before { content:"🔧 "; }
+  .tool .ok { color:var(--ok); } .tool .bad { color:var(--err); }
+  .tool pre { margin:0; padding:8px 10px; white-space:pre-wrap; border-top:1px solid var(--line); color:#334155; }
+  .acciones { display:flex; gap:8px; margin-top:10px; }
+  .thinking { color:var(--muted); font-style:italic; }
+  footer { background:var(--panel); border-top:1px solid var(--line); padding:12px 20px; }
+  form { max-width:860px; margin:0 auto; display:flex; gap:8px; }
+  textarea { flex:1; resize:none; height:52px; padding:10px 12px; font:inherit; border:1px solid var(--line); border-radius:10px; }
+  button { font:inherit; padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:var(--panel); cursor:pointer; }
+  button.primary { background:var(--brand); color:#fff; border-color:var(--brand); }
+  button.warn { background:var(--warn); color:#fff; border-color:var(--warn); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .ejemplos { max-width:860px; margin:0 auto 8px; display:flex; gap:6px; flex-wrap:wrap; }
+  .ejemplos button { font-size:12.5px; padding:4px 10px; }
+  .agent ul { margin:4px 0; padding-left:20px; } .agent p { margin:4px 0; }
+  code { background:#eef2ff; padding:1px 4px; border-radius:4px; font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agente · Registro como Proveedor</h1>
+  <span class="meta" id="meta">conectando…</span>
+  <button id="nueva" type="button">Nueva sesión</button>
+</header>
+<main><div class="chat" id="chat"></div></main>
+<footer>
+  <div class="ejemplos" id="ejemplos"></div>
+  <form id="form">
+    <textarea id="input" placeholder='Ej: Procesa el caso "ec-corp-andina"…' required></textarea>
+    <button class="primary" id="enviar">Enviar</button>
+  </form>
+</footer>
+<script>
+const $ = (id) => document.getElementById(id)
+const chat = $("chat"), input = $("input"), enviarBtn = $("enviar")
+const EJEMPLOS = [
+  'Procesa el caso "ec-corp-andina". Dime qué campos quedaron llenos, cuáles faltan, si el paquete está listo para firma y qué soportes debo actualizar. No envíes nada todavía.',
+  '¿Qué casos hay pendientes?',
+  'Procesa el caso "co-industrias-delta"',
+  'Procesa el caso "pa-logistica-istmo"',
+]
+let sessionId = localStorage.getItem("sid") || nuevoId()
+let clave = localStorage.getItem("accessKey") || ""
+let ocupado = false
+
+function nuevoId() { const id = "s-" + crypto.randomUUID(); localStorage.setItem("sid", id); return id }
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]))
+
+// Markdown mínimo: negritas, código, listas y párrafos (el texto se escapa antes).
+function md(texto) {
+  const lineas = esc(texto).split("\n"); let html = "", enLista = false
+  for (const l of lineas) {
+    const item = l.match(/^\s*[-*•]\s+(.*)/) || l.match(/^\s*\d+\.\s+(.*)/)
+    if (item) { if (!enLista) { html += "<ul>"; enLista = true } html += `<li>${inline(item[1])}</li>`; continue }
+    if (enLista) { html += "</ul>"; enLista = false }
+    if (l.trim()) html += `<p>${inline(l.replace(/^#+\s*/, ""))}</p>`
+  }
+  return html + (enLista ? "</ul>" : "")
+}
+const inline = (s) => s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>")
+
+function burbujaUsuario(texto) { const d = document.createElement("div"); d.className = "msg user"; d.textContent = texto; chat.append(d); bajar() }
+
+function burbujaAgente({ texto, llamadas = [], pideConfirmacion = false, error = false }) {
+  const d = document.createElement("div")
+  d.className = "msg agent" + (pideConfirmacion ? " confirm" : "") + (error ? " error" : "")
+  const tools = llamadas.map((t) => `<details class="tool"><summary><b>${esc(t.nombre)}</b>(${esc(JSON.stringify(t.args))}) → <span class="${t.ok ? "ok" : "bad"}">${t.ok ? "ok" : "error"}</span></summary><pre>${esc(t.resumen)}</pre></details>`).join("")
+  d.innerHTML = (pideConfirmacion ? '<div class="badge">⚠ EL AGENTE ESPERA TU CONFIRMACIÓN</div>' : "") + tools + md(texto)
+  if (pideConfirmacion) {
+    const acc = document.createElement("div"); acc.className = "acciones"
+    acc.innerHTML = '<button class="warn" data-r="Sí, confirmo.">Confirmar</button><button data-r="No, no lo hagas todavía.">Cancelar</button>'
+    acc.addEventListener("click", (e) => { const r = e.target.dataset?.r; if (r && !ocupado) { acc.remove(); enviar(r) } })
+    d.append(acc)
+  }
+  chat.append(d); bajar()
+}
+const bajar = () => chat.parentElement.scrollTo({ top: chat.scrollHeight, behavior: "smooth" })
+
+async function api(ruta, opciones = {}) {
+  const r = await fetch(ruta, { ...opciones, headers: { "content-type": "application/json", "x-access-key": clave, ...(opciones.headers || {}) } })
+  const datos = await r.json().catch(() => ({}))
+  if (r.status === 401) { clave = prompt("Clave de acceso del demo:") || ""; localStorage.setItem("accessKey", clave); if (clave) return api(ruta, opciones) }
+  if (!r.ok) throw new Error(datos.error || `Error ${r.status}`)
+  return datos
+}
+
+async function enviar(texto) {
+  if (ocupado) return
+  ocupado = true; enviarBtn.disabled = true
+  burbujaUsuario(texto)
+  const pensando = document.createElement("div"); pensando.className = "msg agent thinking"; pensando.textContent = "Pensando y ejecutando herramientas…"; chat.append(pensando); bajar()
+  try {
+    const r = await api("/api/chat", { method: "POST", body: JSON.stringify({ sessionId, message: texto }) })
+    pensando.remove()
+    burbujaAgente({ texto: r.reply, llamadas: r.toolCalls, pideConfirmacion: r.needsConfirmation, error: r.error })
+  } catch (e) {
+    pensando.remove(); burbujaAgente({ texto: e.message, error: true })
+  } finally { ocupado = false; enviarBtn.disabled = false; input.focus() }
+}
+
+async function cargarHistorial() {
+  try {
+    const h = await api(`/api/sessions/${sessionId}`)
+    for (const e of h.historial) e.rol === "usuario" ? burbujaUsuario(e.texto) : burbujaAgente(e)
+  } catch { /* sesión nueva */ }
+  if (!chat.children.length) burbujaAgente({ texto: "Hola. Soy el agente de **registro como proveedor**. Dime qué caso procesar (por ejemplo `ec-corp-andina`) o pregúntame qué casos hay. Nunca firmo ni envío nada sin tu confirmación." })
+}
+
+$("form").addEventListener("submit", (e) => { e.preventDefault(); const t = input.value.trim(); if (t) { input.value = ""; enviar(t) } })
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit() } })
+$("nueva").addEventListener("click", () => { sessionId = nuevoId(); chat.innerHTML = ""; cargarHistorial() })
+for (const ej of EJEMPLOS) { const b = document.createElement("button"); b.type = "button"; b.textContent = ej.length > 60 ? ej.slice(0, 57) + "…" : ej; b.title = ej; b.onclick = () => enviar(ej); $("ejemplos").append(b) }
+
+fetch("/api/health").then((r) => r.json()).then((h) => { $("meta").textContent = h.model ? `${h.provider} · ${h.model}` : "servidor sin clave de modelo" }).catch(() => { $("meta").textContent = "sin conexión" })
+cargarHistorial()
+</script>
+</body>
+</html>
