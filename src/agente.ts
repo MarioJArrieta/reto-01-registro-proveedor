@@ -55,7 +55,7 @@ export type Config = { maxIteraciones: number; maxTokensSesion: number; director
 export type Turno = { reply: string; toolCalls: LlamadaVisible[]; needsConfirmation: boolean; error?: boolean }
 
 const MARCA = "[CONFIRMACION]"
-const AFIRMATIVA = /^\s*(s[ií]|si,|confirmo|confirmado|dale|ok|okay|de acuerdo|adelante|procede|hazlo|env[ií]a(lo)?|apruebo|aprobado)\b/i
+const AFIRMATIVA = /^\s*(s[ií]|confirmo|confirmado|dale|ok|okay|de acuerdo|adelante|procede|hazlo|env[ií]a(lo)?|apruebo|aprobado)(?=[\s,.!;:]|$)/iu
 
 /** RN4: solo cuenta como confirmación un "sí" explícito justo después de que el agente la pidió. */
 export const esConfirmacion = (s: Sesion, texto: string) => s.esperandoConfirmacion && AFIRMATIVA.test(texto)
